@@ -13,17 +13,32 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
+/**
+ * Тесты для {@link ShoppingService}
+ */
 public class ShoppingServiceTest {
 
+    /**
+     * Мок для репозитория продуктов
+     */
     private final ProductDao productDaoMock = Mockito.mock(ProductDao.class);
+
+    /**
+     * Тестируемый сервис для покупок
+     */
     private final ShoppingService shoppingService = new ShoppingServiceImpl(productDaoMock);
 
     /**
-     * Тестирование получения корзины
-     * Не нужен, т.к. будет протестирован с методом buy
+     * Пользователь, который используется в тестах
+     */
+    private final Customer customer = new Customer(0, "11-11-11");
+
+
+    /*
+      Тестирование получения корзины
+      Не нужен, т.к. будет протестирован с методом buy
      */
 //    @Test
 //    public void getCartTest() {
@@ -34,11 +49,7 @@ public class ShoppingServiceTest {
      */
     @Test
     public void getFewProducts() {
-        Product productOne = new Product();
-        productOne.setName("One");
-        Product productTwo = new Product();
-        productTwo.setName("Two");
-        List<Product> expectProducts = List.of(productOne, productTwo);
+        List<Product> expectProducts = List.of(new Product(), new Product());
         when(productDaoMock.getAll()).thenReturn(expectProducts);
 
         List<Product> products = shoppingService.getAllProducts();
@@ -62,7 +73,6 @@ public class ShoppingServiceTest {
     public void getProductByName() {
         final String productName = "Expect Product";
         Product expectProduct = new Product();
-        expectProduct.setName(productName);
         when(productDaoMock.getByName(productName)).thenReturn(expectProduct);
 
         Product resultProduct = shoppingService.getProductByName(productName);
@@ -76,7 +86,6 @@ public class ShoppingServiceTest {
     public void getNonExistentProductByName() {
         final String productName = "Expect Product";
         Product expectProduct = new Product();
-        expectProduct.setName(productName);
         when(productDaoMock.getByName(productName)).thenReturn(expectProduct);
 
         Product resultProduct = shoppingService.getProductByName("我就知道你有一双善于发现细节的眼睛。");
@@ -89,7 +98,6 @@ public class ShoppingServiceTest {
      */
     @Test
     public void buyEmptyCart() throws BuyException {
-        Customer customer = createCustomer();
         Cart emptyCart = shoppingService.getCart(customer);
         Assertions.assertEquals(0 , emptyCart.getProducts().size());
         Assertions.assertFalse(shoppingService.buy(emptyCart));
@@ -100,61 +108,61 @@ public class ShoppingServiceTest {
      */
     @Test
     public void buySomeCart() throws BuyException {
-        // Здесь будет сохраненные продукты
-        List<Product> savedProducts = new ArrayList<>();
-        doAnswer((invocation) -> {
-            savedProducts.add(invocation.getArgument(0));
-            return null;
-        }).when(productDaoMock).save(any(Product.class));
-
-        Customer customer = createCustomer();
         Cart cart = shoppingService.getCart(customer);
-        Product productOne = createProduct("Product 1", 1);
-        Product productTwo = createProduct("Product 2", 1);
+        Product productOne = createProduct(null, 2);
+        Product productTwo = createProduct(null, 2);
+        Product noCartProduct = createProduct(null, 2);
         cart.add(productOne, 1);
         cart.add(productTwo, 1);
 
         Assertions.assertTrue(shoppingService.buy(cart));
-        Assertions.assertEquals(List.of(productOne, productTwo), savedProducts);
+        Mockito.verify(productDaoMock).save(productOne);
+        Mockito.verify(productDaoMock).save(productTwo);
+        Mockito.verify(productDaoMock, times(0)).save(noCartProduct);
+        Assertions.assertEquals(1, productOne.getCount());
+        Assertions.assertEquals(1, productTwo.getCount());
+        Assertions.assertEquals(2, noCartProduct.getCount());
     }
 
     /**
-     * Проверяет успешность покупки товаров, которых стало не хватать.
+     * Проверяет успешность покупки последнего товара в наличии
+     */
+    @Test
+    public void buyLastProduct() throws BuyException {
+        Cart cart = shoppingService.getCart(customer);
+        Product productOne = createProduct(null, 1);
+        cart.add(productOne, 1);
+
+        Assertions.assertTrue(shoppingService.buy(cart));
+        Mockito.verify(productDaoMock).save(productOne);
+        Assertions.assertEquals(0, productOne.getCount());
+    }
+
+    /**
+     * Проверяет неуспешность покупки товаров, которых стало не хватать.
      */
     @Test
     public void buyUnavailable() {
-        // Список сохраненных продуктов должен быть пустым
-        List<Product> savedProducts = new ArrayList<>();
-        doAnswer((invocation) -> {
-            savedProducts.add(invocation.getArgument(0));
-            return null;
-        }).when(productDaoMock).save(any(Product.class));
-
         // Создаем корзину
-        Customer customer = createCustomer();
         Cart cart = shoppingService.getCart(customer);
-        Product productOne = createProduct("Product 1", 2);
-        Product productTwo = createProduct("Product 2", 1);
+        Product productOne = createProduct("Some Product", 3);
+        Product productTwo = createProduct(null, 2);
         cart.add(productOne, 2);
         cart.add(productTwo, 1);
         // А теперь первый продукт кто-то откупил и его не хватает
-        productOne.subtractCount(1);
+        productOne.subtractCount(2);
 
         // И смотрим, вылетит ли exception
-        Assertions.assertThrows(BuyException.class, () -> shoppingService.buy(cart));
-        Assertions.assertEquals(List.of(), savedProducts);
-    }
-
-    /**
-     * Создает тестового пользователя
-     */
-    private Customer createCustomer() {
-        return new Customer(0, "11-11-11");
+        BuyException exception = Assertions.assertThrows(BuyException.class, () -> shoppingService.buy(cart));
+        Assertions.assertEquals(exception.getMessage(), "В наличии нет необходимого количества товара Some Product");
+        Mockito.verify(productDaoMock, times(0)).save(any(Product.class));
+        Assertions.assertEquals(1, productOne.getCount());
+        Assertions.assertEquals(2, productTwo.getCount());
     }
 
     /**
      * Создает продукт с заданными свойствами
-     * @param name Название продукта
+     * @param name Название продукта (может быть null)
      * @param count Количество в наличии
      * @return Экземпляр продукта
      */

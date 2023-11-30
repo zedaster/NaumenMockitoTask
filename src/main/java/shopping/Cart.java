@@ -55,9 +55,7 @@ public class Cart {
      * @throws IllegalArgumentException - если недопустимо
      */
     private static void validateCount(Product product, int count) throws IllegalArgumentException {
-        // Почему бы нам не выкупить все продукты?
-        // В старой реализации обязательно должен был остаться один продукт
-        if (product.getCount() - count < 0) {
+        if (product.getCount() - count <= 0) {
             throw new IllegalArgumentException(
                     "Невозможно добавить товар '%s' в корзину, т.к. нет необходимого количества товаров"
                             .formatted(product.getName()));
